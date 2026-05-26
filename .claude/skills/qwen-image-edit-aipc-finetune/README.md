@@ -31,9 +31,10 @@ oneAPI, conda, etc.).
    This is the unmodified upstream repo. The agent will apply all XPU
    adaptations (§6 of `SKILL.md`) during setup.
 
-2. **Open your agent (Claude Code, etc.) inside that directory** and make
-   sure it has this skill available — usually by placing the skill folder
-   under `.claude/skills/` or per your agent's skill-source configuration.
+2. **Open your agent (Claude Code, etc.) inside that directory.** This skill
+   is pre-installed in `.claude/skills/` of the repository — no extra setup
+   needed. If you are using the skill from a separate source, place this
+   directory under `.claude/skills/` in your project.
 
 3. **Ask the agent for help**, for example:
 
