@@ -2,12 +2,13 @@
 name: qwen-image-edit-aipc-finetune
 description: >
   End-to-end runbook for fine-tuning Qwen-Image-Edit with LoRA on a single Intel
-  AI PC (Core Ultra processor) Windows laptop. Use this skill when a user wants
-  to personalize Qwen-Image-Edit on their own dataset using consumer-grade Intel
-  AI PC hardware. Covers: dataset preparation guidance, hardware probe →
-  recommended training config, oneAPI / conda environment setup, NF4 QLoRA
-  memory optimizations, training execution, programmatic LoRA quality
-  validation.
+  AI PC (Core Ultra processor) Windows laptop. Use this skill whenever a user
+  wants to fine-tune or personalize Qwen-Image-Edit on their own dataset using
+  Intel AI PC hardware, mentions XPU training or NF4 QLoRA on Windows — even if
+  they don't use those exact terms. Covers: dataset preparation, hardware probe
+  → recommended training config, oneAPI / conda environment setup, XPU framework
+  adaptation, NF4 QLoRA memory optimizations, training execution, and
+  post-training visual comparison.
 ---
 
 # Qwen-Image-Edit LoRA Fine-Tuning on Intel AI PC (Windows)
