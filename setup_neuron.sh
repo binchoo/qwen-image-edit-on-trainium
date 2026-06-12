@@ -53,8 +53,15 @@ export PIP_EXTRA_INDEX_URL="${NEURON_PIP_INDEX}"
 # 3) Install the ENTIRE Neuron stack in one consolidated, compatible resolve.
 #    --upgrade-strategy eager is what the HF docs prescribe; it lets pip pull the
 #    matching Neuron torch instead of leaving a stale CUDA torch in place.
-echo "Installing optimum-neuron[neuronx] (resolves torch-neuronx + neuronx-cc + transformers + accelerate) ..."
-python -m pip install --upgrade --upgrade-strategy eager "optimum-neuron[neuronx]"
+#
+#    We install BOTH extras: [neuronx] pulls torch-neuronx / neuronx-cc /
+#    libneuronxla; [training] pins the exact accelerate (==1.8.1) and peft that
+#    NeuronAccelerator was written against. Installing only [neuronx] lets a
+#    newer accelerate slip in, whose Accelerator.__init__ internals don't match
+#    optimum-neuron's AcceleratorState patching -> the
+#    "'functools.partial' object has no attribute '_shared_state'" crash.
+echo "Installing optimum-neuron[neuronx,training] (Neuron torch stack + pinned accelerate/peft) ..."
+python -m pip install --upgrade --upgrade-strategy eager "optimum-neuron[neuronx,training]"
 
 # 4) Freeze the Neuron-owned packages into a pip CONSTRAINTS file. Installing the
 #    app requirements under this constraint lets pip resolve legitimate transitive
@@ -64,7 +71,7 @@ python -m pip install --upgrade --upgrade-strategy eager "optimum-neuron[neuronx
 #    backfill list (which drifts from requirements-neuron.txt).
 echo "Freezing Neuron stack into constraints.txt ..."
 CONSTRAINTS="$(mktemp)"
-python -m pip freeze | grep -iE '^(torch|torch-xla|torch-neuronx|torchvision|neuronx-cc|libneuronxla|transformers|tokenizers|accelerate|optimum-neuron|safetensors|huggingface-hub|numpy)==' \
+python -m pip freeze | grep -iE '^(torch|torch-xla|torch-neuronx|torchvision|neuronx-cc|neuronx-distributed|libneuronxla|transformers|tokenizers|accelerate|peft|optimum-neuron|safetensors|huggingface-hub|numpy)==' \
     > "${CONSTRAINTS}" || true
 echo "--- constraints ---"; cat "${CONSTRAINTS}"; echo "-------------------"
 
@@ -94,6 +101,17 @@ from optimum.neuron import NeuronAccelerator  # noqa: F401
 print("optimum.neuron.NeuronAccelerator: OK")
 import optimum.neuron as on
 print(f"optimum-neuron: {getattr(on, '__version__', 'unknown')}")
+import accelerate
+print(f"accelerate: {accelerate.__version__}")
+# optimum-neuron 0.4.5 was written against accelerate 1.8.1; a mismatched
+# accelerate causes the 'functools.partial has no attribute _shared_state' crash
+# at NeuronAccelerator() construction time.
+if not accelerate.__version__.startswith("1.8."):
+    print(
+        f"WARNING: accelerate {accelerate.__version__} != 1.8.x expected by "
+        "optimum-neuron 0.4.5. If NeuronAccelerator construction crashes, run: "
+        "pip install 'accelerate==1.8.1'"
+    )
 print("=== Neuron stack sanity check PASSED ===")
 PY
 
