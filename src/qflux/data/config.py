@@ -6,7 +6,15 @@ Configuration module for Qwen Image Fine-tuning (Pydantic BaseModel version)
 import os
 import re
 from enum import Enum
-from typing import Any, Self, Union
+from typing import Any, Union
+
+
+try:
+    # typing.Self is only available on Python 3.11+. The Neuron DLAMI / SageMaker
+    # base env may ship 3.10, so fall back to typing_extensions there.
+    from typing import Self
+except ImportError:  # Python <= 3.10
+    from typing_extensions import Self
 
 import torch
 import yaml
