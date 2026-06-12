@@ -1,58 +1,50 @@
-# Python dependencies for AWS Trainium (Neuron) training.
+# App-layer Python dependencies for AWS Trainium (Neuron) training.
+#
+# IMPORTANT: this file deliberately does NOT list the packages that the Neuron
+# stack owns. setup_neuron.sh installs `optimum-neuron[neuronx]` FIRST, which
+# pins a mutually-compatible set:
+#       torch (Neuron build)  torch-neuronx  neuronx-cc  libneuronxla
+#       torch_xla  transformers  accelerate  tokenizers  huggingface_hub  safetensors
+# Re-listing any of those here (especially with a hard ==pin) would let pip
+# overwrite the Neuron-pinned versions and pull a CUDA torch — which is exactly
+# the failure we hit before. So they are intentionally omitted.
 #
 # Differences vs requirements.txt (CUDA):
-#   - REMOVED  bitsandbytes            (CUDA-only quantization)
-#   - REMOVED  transformer_engine      (NVIDIA FP8, CUDA-only)
-#   - REMOVED  optimum-quanto          (GPU quantization; not used on Neuron)
-#   - flash-attn is never installed    (Neuron uses SDPA, see load_model._attn_impl)
-#   - ADDED    optimum-neuron          (NeuronAccelerator + XLA training glue)
+#   - REMOVED  bitsandbytes / transformer_engine / optimum-quanto  (CUDA-only)
+#   - REMOVED  flash-attn                                          (Neuron uses SDPA)
+#   - REMOVED  torch / transformers / accelerate / huggingface_hub / safetensors
+#              (managed by optimum-neuron[neuronx])
 #
-# The Neuron runtime/compiler packages (torch-neuronx, neuronx-cc, libneuronxla,
-# torch_xla) are NOT listed here because they must come from the AWS Neuron pip
-# index. Install them via setup_neuron.sh, then `pip install -r requirements-neuron.txt`.
+# setup_neuron.sh installs this with --no-deps to protect the Neuron stack, then
+# backfills the small set of pure-python transitive deps these need.
 
-safetensors
+# --- App-specific model/runtime libs (not part of the base Neuron stack) ---
 diffusers>=0.36.0
-transformers==4.52.4
+peft
+
+# --- Pure-python utilities used by qflux ---
 pyyaml
 oyaml
-tensorboardX
-einops
-accelerate
-pydantic==2.11.7
 omegaconf
+pydantic==2.11.7
 tqdm
-huggingface_hub
 opencv-python
 matplotlib==3.10.1
-peft
 tabulate
 psutil
-ipykernel
 packaging
-ninja
-wheel
-setuptools
 sentencepiece
 datasets
 prodigyopt
 blake3
 pillow
 rich
-pre-commit
-ruff
-mypy
-dotenv
-types-tabulate
-types-PyYAML
+einops
+tensorboardX
+python-dotenv
 typing-extensions
-# logging tools
-wandb
-swanlab
 ImageHash
 
-# --- Neuron-specific (installed separately from the AWS Neuron pip index) ---
-# torch-neuronx
-# neuronx-cc
-# libneuronxla
-optimum-neuron
+# --- logging tools ---
+wandb
+swanlab
