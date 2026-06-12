@@ -234,7 +234,10 @@ def get_lora_state_dict_oom_safe(model, adapter_name: str = "default"):
             k = k[len("module.") :]
         sd[k] = t.detach().to("cpu", non_blocking=True)
 
-    with torch.inference_mode():
+    # XLA rejects "inference tensors" (no version_counter) during lazy tracing;
+    # no_grad is equivalent here and stays trackable. CUDA keeps inference_mode.
+    _no_grad = torch.no_grad() if backend.is_xla() else torch.inference_mode()
+    with _no_grad:
         # 只抓 PEFT 的子模块：lora_A / lora_B / lora_embedding_A / lora_embedding_B / (可选) adapter_name
         for mod_name, m in model.named_modules():
             for attr in (

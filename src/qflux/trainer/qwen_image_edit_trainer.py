@@ -927,7 +927,13 @@ class QwenImageEditTrainer(BaseTrainer):
                 new_images.append(img)
             image = new_images
 
-        with torch.inference_mode():
+        # inference_mode produces "inference tensors" that carry no version_counter;
+        # the XLA/Neuron lazy-graph tracer rejects them ("Cannot set version_counter
+        # for inference tensor") when F.linear runs inside the encoder. no_grad is
+        # equivalent for this frozen encoder but yields trackable tensors. Keep
+        # inference_mode on CUDA so that path is byte-identical.
+        _no_grad = torch.no_grad() if backend.is_xla() else torch.inference_mode()
+        with _no_grad:
             prompt_embeds, prompt_embeds_mask = self._get_qwen_prompt_embeds(prompt, image, device)
         _, seq_len, _ = prompt_embeds.shape
         prompt_embeds = prompt_embeds.repeat(1, num_images_per_prompt, 1)
