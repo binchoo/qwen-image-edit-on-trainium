@@ -40,6 +40,8 @@ from qflux.models.quantize import quantize_model_to_fp8
 from qflux.scheduler.custom_flowmatch_scheduler import FlowMatchEulerDiscreteScheduler
 from qflux.trainer.constants import LORA_FILE_BASE_NAME
 from qflux.trainer.validation import ValidationMixin
+from qflux.utils import backend
+from qflux.utils.accelerate_factory import build_accelerator
 from qflux.utils.huggingface import download_lora
 from qflux.utils.logger import LoggerManager
 from qflux.utils.lora_utils import FpsLogger, classify_lora_weight, get_lora_layers, get_lora_state_dict_oom_safe
@@ -364,7 +366,7 @@ class BaseTrainer(ValidationMixin, ABC):
             plug.sharding_strategy = ShardingStrategy.FULL_SHARD  # FULL_SHARD   # SHARD_GRAD_OP
 
             self.dit = self.dit.to("cpu")
-            torch.cuda.empty_cache()
+            backend.empty_cache()
             gc.collect()
 
             self.dit, optimizer, train_dataloader, lr_scheduler = self.accelerator.prepare(
@@ -443,7 +445,7 @@ class BaseTrainer(ValidationMixin, ABC):
         if hasattr(self, "vit"):
             self.vit.cpu()
             del self.vit
-        torch.cuda.empty_cache()
+        backend.empty_cache()
         gc.collect()
 
     def clip_gradients(self):
@@ -535,6 +537,10 @@ class BaseTrainer(ValidationMixin, ABC):
                 # print('optimizer step', self.accelerator.process_index)
                 self.optimizer.zero_grad()
                 # print('sync_gradients', self.accelerator.process_index)
+            # XLA graph-execution boundary: materialize the accumulated graph once
+            # per loop iteration. No-op on CUDA/CPU; on Trainium this is what keeps
+            # the lazy-tensor graph from growing unbounded across micro-batches.
+            backend.mark_step()
             if self.accelerator.sync_gradients:
                 avg_loss = self.accelerator.gather(loss.detach()).mean()
                 self.train_loss = avg_loss.item() / self.config.train.gradient_accumulation_steps
@@ -764,12 +770,13 @@ class BaseTrainer(ValidationMixin, ABC):
             logging_dir=self.config.logging.output_dir,
         )
 
-        self.accelerator = Accelerator(
+        # build_accelerator returns a vanilla accelerate.Accelerator on CUDA/CPU
+        # (mixed_precision="no", unchanged behaviour) or a NeuronAccelerator on
+        # the XLA/Trainium backend (bf16 autocast + optional ZeRO-1).
+        self.accelerator = build_accelerator(
             gradient_accumulation_steps=self.config.train.gradient_accumulation_steps,
-            # mixed_precision=self.config.train.mixed_precision,
-            mixed_precision="no",  # ← 关键
-            # log_with=log_with,  # 传入日志工具类型
             project_config=accelerator_project_config,
+            neuron_config=getattr(self.config.train, "neuron", None),
         )
 
         # Prepare validation embeddings now that accelerator is initialized
@@ -792,6 +799,11 @@ class BaseTrainer(ValidationMixin, ABC):
         logging.info(f"Mixed precision: {self.accelerator.mixed_precision}")
 
     def is_fsdp_enabled(self):
+        # FSDP is a CUDA-only path. On AWS Trainium (XLA) distribution is handled
+        # by NeuronAccelerator (data parallel / optional ZeRO-1), so we never take
+        # the torch.distributed.fsdp branch there.
+        if backend.is_xla():
+            return False
         plug = self.accelerator.state.fsdp_plugin if hasattr(self.accelerator.state, "fsdp_plugin") else None
         return plug is not None
 
@@ -917,6 +929,14 @@ class BaseTrainer(ValidationMixin, ABC):
 
     @classmethod
     def quantize_model(cls, model, device):
+        # bitsandbytes / transformer_engine quantization is CUDA-only. On AWS
+        # Trainium we train the base model in bf16 (config forces quantize=False),
+        # so this path should never be hit on XLA — guard defensively.
+        if backend.is_xla():
+            raise RuntimeError(
+                "Quantization (bitsandbytes/transformer_engine) is not supported on "
+                "the Neuron/XLA backend. Set model.quantize=false and train in bf16."
+            )
         model = quantize_model_to_fp8(
             model,
             engine="bnb",

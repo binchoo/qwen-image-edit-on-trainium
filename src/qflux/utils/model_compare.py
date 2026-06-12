@@ -9,6 +9,8 @@ from typing import Any
 import numpy as np
 import torch
 
+from qflux.utils import backend
+
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +247,7 @@ def compare_flux_kontext_models(
 
         # Clean up
         del model_direct, model_pipeline
-        torch.cuda.empty_cache()
+        backend.empty_cache()
 
         return results
 

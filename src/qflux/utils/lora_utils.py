@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
 
+from qflux.utils import backend
+
 
 def classify_lora_weight(lora_weight):
     sd = safetensors.torch.load_file(lora_weight)
@@ -253,5 +255,5 @@ def get_lora_state_dict_oom_safe(model, adapter_name: str = "default"):
             if ("lora_A." in n or "lora_B." in n or "lora_embedding_" in n) and n not in sd:
                 _put(n, p)
 
-    torch.cuda.empty_cache()
+    backend.empty_cache()
     return sd

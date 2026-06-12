@@ -4,6 +4,16 @@ import torch
 from diffusers import AutoencoderKLQwenImage, QwenImageEditPipeline
 
 from qflux.models.transformer_qwenimage import QwenImageTransformer2DModel
+from qflux.utils import backend
+
+
+def _attn_impl() -> str:
+    """Attention implementation for the active backend.
+
+    FlashAttention-2 is a CUDA-only kernel; on AWS Trainium (XLA) we fall back to
+    PyTorch SDPA which lowers to a native Neuron attention via torch_xla.
+    """
+    return "flash_attention_2" if backend.is_cuda() else "sdpa"
 
 
 def load_vae(pretrained_model_name_or_path, weight_dtype):
@@ -25,7 +35,7 @@ def load_qwenvl(pretrained_model_name_or_path, weight_dtype):
         "Qwen/Qwen2.5-VL-7B-Instruct",
         torch_dtype=weight_dtype,  # CPU 用 fp32
         use_safetensors=True,
-        attn_implementation="flash_attention_2",
+        attn_implementation=_attn_impl(),
     )  # 默认就在 CPU；稳妥可再
     logging.info(f"loaded qwen_vl from {pretrained_model_name_or_path} with weight_dtype {weight_dtype}")
     return model
@@ -40,7 +50,7 @@ def load_transformer(pretrained_model_name_or_path, weight_dtype, device_map="cu
         subfolder="transformer",
         torch_dtype=weight_dtype,
         use_safetensors=True,  # 使用 safetensors 格式，加载更快,
-        attn_implementation="flash_attention_2",
+        attn_implementation=_attn_impl(),
         device_map="cpu",  # load to cpu instead of gpu
     )
     logging.info(f"loaded transformer from {pretrained_model_name_or_path} with weight_dtype {weight_dtype}")

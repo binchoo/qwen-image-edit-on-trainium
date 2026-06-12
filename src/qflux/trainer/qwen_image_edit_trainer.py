@@ -28,6 +28,7 @@ from qflux.models.transformer_qwenimage import QwenImageTransformer2DModel
 # calculate_dimensions,
 # from qflux.loss.edit_mask_loss import map_mask_to_latent
 from qflux.trainer.base_trainer import BaseTrainer
+from qflux.utils import backend
 from qflux.utils.images import calculate_best_resolution, make_image_devisible, make_image_shape_devisible
 from qflux.utils.tools import extract_batch_field, infer_image_tensor, pad_latents_for_multi_res
 
@@ -147,7 +148,7 @@ class QwenImageEditTrainer(BaseTrainer):
         self.text_encoder.requires_grad_(False).eval()
         self.vae.requires_grad_(False).eval()
         self.dit.requires_grad_(False).eval()
-        torch.cuda.empty_cache()
+        backend.empty_cache()
 
         logging.info(f"Components loaded successfully. VAE scale factor: {self.vae_scale_factor}")
 
@@ -296,9 +297,9 @@ class QwenImageEditTrainer(BaseTrainer):
         if self.cache_exist and self.use_cache and stage == "fit":
             # Cache mode: only need transformer
             self.text_encoder.cpu()
-            torch.cuda.empty_cache()
+            backend.empty_cache()
             self.vae.cpu()
-            torch.cuda.empty_cache()
+            backend.empty_cache()
             # del self.text_encoder
 
             if not self.config.validation.enabled:
@@ -345,9 +346,9 @@ class QwenImageEditTrainer(BaseTrainer):
 
             self.text_encoder = self.text_encoder.to(self.config.cache.devices.text_encoder, non_blocking=True)
 
-            torch.cuda.synchronize()
+            backend.synchronize()
             self.dit.cpu()
-            torch.cuda.empty_cache()
+            backend.empty_cache()
             del self.dit
             gc.collect()
             self.vae.requires_grad_(False).eval()
@@ -966,7 +967,7 @@ class QwenImageEditTrainer(BaseTrainer):
             return_tensors="pt",
         ).to(device)
 
-        with torch.cuda.device(model_inputs.input_ids.device):  # 作用域内的 'cuda' 都指向同一张卡
+        with backend.device_context(model_inputs.input_ids.device):  # 作用域内的 'cuda' 都指向同一张卡
             outputs = self.text_encoder(
                 input_ids=model_inputs.input_ids,
                 attention_mask=model_inputs.attention_mask,
@@ -1137,7 +1138,7 @@ class QwenImageEditTrainer(BaseTrainer):
 
         if do_true_cfg:
             # 清理显存以确保有足够空间进行 CFG
-            torch.cuda.empty_cache()
+            backend.empty_cache()
             logging.info(f"negative_prompt: {negative_prompt}")
 
             # 临时将 positive prompt embeddings 移到 CPU 以节省显存
@@ -1250,7 +1251,7 @@ class QwenImageEditTrainer(BaseTrainer):
                 if do_true_cfg:
                     # 临时释放正面推理结果的显存，避免两次推理同时占用显存
                     noise_pred_cpu = noise_pred.cpu()
-                    torch.cuda.empty_cache()
+                    backend.empty_cache()
                     with torch.inference_mode():  # 外层关掉梯度 & 减元数据
                         with self.dit.cache_context("uncond"):
                             neg_noise_pred = self.dit(
@@ -1276,7 +1277,7 @@ class QwenImageEditTrainer(BaseTrainer):
 
                     # 释放中间结果显存
                     del neg_noise_pred, comb_pred, cond_norm, noise_norm
-                    torch.cuda.empty_cache()
+                    backend.empty_cache()
 
                 # compute the previous noisy sample x_t -> x_t-1
                 latents_dtype = latents.dtype

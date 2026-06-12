@@ -4,6 +4,8 @@ import random
 import numpy as np
 import torch
 
+from qflux.utils import backend
+
 
 def seed_everything(seed):
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -11,4 +13,4 @@ def seed_everything(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    backend.manual_seed_all(seed)

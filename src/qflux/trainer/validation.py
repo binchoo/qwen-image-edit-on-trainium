@@ -16,6 +16,7 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from qflux.data.config import Config, ValidationSample
+from qflux.utils import backend
 from qflux.utils.tools import instantiate_class, pad_to_max_shape
 
 
@@ -393,7 +394,7 @@ class ValidationMixin:
         if self.config.cache.use_cache:
             # in cache model, can unload vae to cpu
             self.vae.to("cpu")
-            torch.cuda.empty_cache()
+            backend.empty_cache()
         self.accelerator.wait_for_everyone()
         logging.info(f"[{self.accelerator.process_index}] rank {self.accelerator.process_index} finished validation")
         # self.accelerator.wait_for_everyone()

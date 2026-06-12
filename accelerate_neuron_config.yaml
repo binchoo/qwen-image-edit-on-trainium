@@ -1,0 +1,20 @@
+# Accelerate config for AWS Trainium (Neuron / XLA).
+#
+# Note: on Neuron the recommended launcher is `torchrun` (see run_neuron.sh), and
+# distribution is driven by optimum-neuron's NeuronAccelerator, NOT by accelerate's
+# FSDP/DDP. This file exists mainly so `accelerate launch` can be used for quick
+# single-core smoke tests; it intentionally disables FSDP and the inductor backend
+# (neuronx-cc is the compiler on Trainium, not TorchInductor).
+compute_environment: LOCAL_MACHINE
+debug: false
+distributed_type: 'NO'        # NeuronAccelerator handles data-parallel / ZeRO-1
+mixed_precision: bf16
+dynamo_backend: 'no'          # neuronx-cc compiles the XLA graph; do not use inductor
+num_machines: 1
+num_processes: 1              # set to the number of NeuronCores for data parallel
+machine_rank: 0
+main_training_function: main
+use_cpu: false
+rdzv_backend: static
+same_network: true
+deepspeed_config: {}

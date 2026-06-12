@@ -1,0 +1,118 @@
+# Qwen-Image-Edit LoRA fine-tuning on AWS Trainium (Neuron / torch-neuronx / XLA).
+#
+# Run on a trn1/trn2 instance with the Neuron env (see setup_neuron.sh). The
+# backend is auto-detected when torch_xla + NEURON_RT_VISIBLE_CORES are present,
+# or force it with QFLUX_BACKEND=xla.
+#
+# Key differences vs the CUDA configs:
+#   - quantize: false        (bitsandbytes / transformer_engine are CUDA-only)
+#   - all devices are "xla"  (the backend resolves the actual NeuronCore)
+#   - a train.neuron block    drives the NeuronAccelerator (bf16, optional ZeRO-1)
+#   - fixed target_size + use_cache to keep a single static graph (avoid recompiles)
+model:
+  pretrained_model_name_or_path: Qwen/Qwen-Image-Edit
+  quantize: false  # MUST be false on Neuron (CUDA-only quantization)
+  lora:
+    r: 16
+    lora_alpha: 16
+    init_lora_weights: "gaussian"
+    target_modules: ["to_k", "to_q", "to_v", "to_out.0"]
+    pretrained_weight: null
+    adapter_name: "lora_edit"
+
+data:
+  class_path: qflux.data.dataset.ImageDataset
+  init_args:
+    dataset_path:
+      - split: train
+        repo_id: TsienDragon/face_segmentation_20
+    caption_dropout_rate: 0.0
+    prompt_image_dropout_rate: 0.0
+    use_edit_mask: true
+    selected_control_indexes: [1]
+    processor:
+      class_path: qflux.data.preprocess.ImageProcessor
+      init_args:
+        process_type: center_crop
+        resize_mode: bilinear
+        # Fixed resolution -> one static XLA graph. Do not vary per-sample on Neuron.
+        target_size: [832, 576]
+        controls_size: [[832, 576]]
+
+  batch_size: 1  # fixed; varying batch size triggers neuronx-cc recompiles
+  num_workers: 2
+  shuffle: true
+
+logging:
+  output_dir: /tmp/image_edit_lora_neuron/
+  report_to: tensorboard
+  tracker_project_name: faceSegQwenImageEditNeuron
+  tags:
+    - neuron
+    - trainium
+    - QwenImageEdit
+    - FaceSeg
+  notes: "Qwen-Image-Edit LoRA fine-tuning on AWS Trainium (XLA backend)"
+
+validation:
+  enabled: false  # validation uses different shapes -> recompiles; enable once shapes are bucketed
+  steps: 100
+  max_samples: 2
+  seed: 42
+  samples: []
+
+optimizer:
+  # AdamW keeps optimizer state in fp32 (stable with a bf16 base). Prodigy also
+  # works; avoid bitsandbytes optimizers (CUDA-only) on Neuron.
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 0.0001
+    betas: [0.9, 0.999]
+    weight_decay: 0.01
+
+lr_scheduler:
+  scheduler_type: "cosine"
+  warmup_steps: 50
+  num_cycles: 0.5
+  power: 1.0
+
+loss:
+  class_path: qflux.losses.AttentionMaskMseLoss
+  init_args:
+    foreground_weight: 2.0
+    background_weight: 1.0
+    eps: 1e-12
+    reduction: mean
+
+train:
+  gradient_accumulation_steps: 1
+  max_train_steps: 10000
+  checkpointing_steps: 100
+  max_grad_norm: 1.0
+  mixed_precision: "bf16"
+  gradient_checkpointing: True
+  low_memory: False
+  # AWS Trainium / Neuron options (only consulted when backend == "xla")
+  neuron:
+    zero1: false              # LoRA optimizer state is tiny; data-parallel is enough
+    tensor_parallel_size: 1   # pure data parallel
+    bf16: true                # NeuronAccelerator drives bf16 autocast
+
+trainer: QwenImageEdit
+resume: null
+
+cache:
+  devices:
+    vae: xla
+    text_encoder: xla
+  cache_dir: ${logging.output_dir}/${logging.tracker_project_name}/cache
+  use_cache: true  # strongly recommended on Neuron: encode once, train the DiT on a static graph
+  prompt_empty_drop_keys:
+    - prompt_embeds
+    - pooled_prompt_embeds
+
+predict:
+  devices:
+    vae: xla
+    text_encoder: xla
+    dit: xla

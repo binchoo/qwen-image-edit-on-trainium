@@ -54,6 +54,9 @@ def _normalize_device(x: DeviceLike | None) -> torch.device | None:
             raise ValueError(f"CUDA not available but got device={d}.")
     if d.type == "mps" and not torch.backends.mps.is_available():
         raise ValueError("MPS not available but got device='mps'.")
+    # 'xla' (AWS Trainium / Inferentia via torch-neuronx) is validated lazily at
+    # runtime by the backend layer; torch.device('xla') is accepted here so that
+    # configs can target Neuron without requiring torch_xla at config-load time.
     return d
 
 
@@ -603,6 +606,19 @@ class TrainerKind(str, Enum):
     Flux2Klein = "Flux2Klein"
 
 
+class NeuronConfig(BaseModel):
+    """AWS Trainium / Neuron (torch-neuronx / XLA) training options.
+
+    Only consulted when the active backend resolves to ``xla`` (see
+    ``qflux.utils.backend``). Ignored on the CUDA/CPU path.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    zero1: bool = False  # enable optimizer state sharding (ZeRO stage 1) via NeuronAccelerator
+    tensor_parallel_size: int = 1  # 1 = pure data parallel (recommended for LoRA)
+    bf16: bool = True  # let NeuronAccelerator drive bf16 autocast
+
+
 class TrainConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     train_batch_size: int = 1
@@ -617,6 +633,8 @@ class TrainConfig(BaseModel):
     low_memory: bool = False
     # 指定精细设备布局（低显存模式时生效）
     fit_device: DeviceConfig | None = None
+    # AWS Trainium / Neuron options (only used when backend == "xla")
+    neuron: NeuronConfig = Field(default_factory=NeuronConfig)
 
     @field_validator(
         "train_batch_size",
@@ -826,6 +844,12 @@ class Config(BaseModel):
         self.data.init_args.prompt_empty_drop_keys = self.cache.prompt_empty_drop_keys
         self.train.train_batch_size = self.data.batch_size
         if self.quantization_type in {"pretrain_fp4", "pretrain_fp8", "pretrain_fp16"}:
+            self.model.quantize = False
+        # bitsandbytes / transformer_engine quantization is CUDA-only and is not
+        # available on AWS Trainium. Force it off when running on the XLA backend.
+        from qflux.utils import backend
+
+        if backend.is_xla():
             self.model.quantize = False
         return self
 
